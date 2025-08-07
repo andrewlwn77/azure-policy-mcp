@@ -1,0 +1,78 @@
+{
+  "name": "azure-policy-mcp",
+  "version": "1.0.0",
+  "description": "MCP server for generating policy-compliant Azure Bicep infrastructure from natural language descriptions",
+  "main": "build/index.js",
+  "type": "module",
+  "bin": {
+    "azure-policy-mcp": "./build/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "start": "node ./build/index.js",
+    "test": "npm run build && npm run test:compile && jest",
+    "test:compile": "tsc --project tsconfig.test.json",
+    "test:unit": "npm run build && npm run test:compile && jest tests/unit",
+    "test:integration": "npm run build && npm run test:compile && jest tests/integration",
+    "test:watch": "npm run build && npm run test:compile && jest --watch",
+    "test:coverage": "npm run build && npm run test:compile && jest --coverage",
+    "lint": "eslint src --ext .ts",
+    "lint:fix": "eslint src --ext .ts --fix",
+    "pretest": "",
+    "prepublishOnly": "npm run build",
+    "postversion": "git push && git push --tags"
+  },
+  "keywords": [
+    "mcp",
+    "azure",
+    "bicep",
+    "policy",
+    "infrastructure",
+    "compliance",
+    "code-generation",
+    "modelcontextprotocol",
+    "claude",
+    "ai"
+  ],
+  "author": {
+    "name": "Azure Policy MCP Developer",
+    "url": "https://github.com/azure-projects/azure-policy-mcp"
+  },
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.15.1",
+    "typescript": "^5.8.3",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@jest/globals": "^30.0.4",
+    "@types/jest": "^30.0.0",
+    "@types/node": "^20.19.8",
+    "@typescript-eslint/eslint-plugin": "^8.0.0",
+    "@typescript-eslint/parser": "^8.0.0",
+    "eslint": "^8.57.0",
+    "jest": "^30.0.4",
+    "ts-jest": "^29.4.0"
+  },
+  "files": [
+    "build",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/azure-projects/azure-policy-mcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/azure-projects/azure-policy-mcp/issues"
+  },
+  "homepage": "https://github.com/azure-projects/azure-policy-mcp#readme"
+}
