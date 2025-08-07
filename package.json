@@ -5,7 +5,7 @@
   "main": "build/index.js",
   "type": "module",
   "bin": {
-    "azure-policy-mcp": "./build/index.js"
+    "azure-policy-mcp": "build/index.js"
   },
   "scripts": {
     "build": "tsc",
@@ -36,8 +36,8 @@
     "ai"
   ],
   "author": {
-    "name": "Azure Policy MCP Developer",
-    "url": "https://github.com/azure-projects/azure-policy-mcp"
+    "name": "andrewlwn77",
+    "url": "https://github.com/andrewlwn77/azure-policy-mcp"
   },
   "license": "MIT",
   "engines": {
@@ -69,10 +69,10 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/azure-projects/azure-policy-mcp.git"
+    "url": "git+https://github.com/andrewlwn77/azure-policy-mcp.git"
   },
   "bugs": {
-    "url": "https://github.com/azure-projects/azure-policy-mcp/issues"
+    "url": "https://github.com/andrewlwn77/azure-policy-mcp/issues"
   },
-  "homepage": "https://github.com/azure-projects/azure-policy-mcp#readme"
+  "homepage": "https://github.com/andrewlwn77/azure-policy-mcp#readme"
 }

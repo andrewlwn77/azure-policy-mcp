@@ -1,10 +1,17 @@
 # Azure Policy MCP Server
 
-A comprehensive Model Context Protocol (MCP) server that enables Claude Code to generate policy-compliant Azure Bicep infrastructure from natural language descriptions.
+A Model Context Protocol (MCP) server that provides Azure policy analysis and Bicep template generation capabilities for Claude Code. Generate policy-compliant Azure infrastructure using natural language descriptions and GitHub Search API for fast, real-time results.
 
 ## Overview
 
-The Azure Policy MCP Server transforms Claude Code into an intelligent infrastructure development partner by combining comprehensive Azure Policy knowledge with extensive Bicep template databases. This enables developers to generate policy-compliant Azure infrastructure from natural language descriptions, eliminating deployment failures and dramatically accelerating compliant cloud development.
+The Azure Policy MCP Server integrates Azure policy intelligence with Bicep template generation, enabling developers to:
+- Analyze Azure policies applicable to specific resource types
+- Generate policy-compliant Bicep templates from natural language
+- Validate existing templates against Azure policies  
+- Search Azure QuickStart templates efficiently
+- Get policy compliance recommendations
+
+Built with GitHub Search API for fast responses and real-time data access.
 
 ## Features
 
@@ -32,12 +39,23 @@ The Azure Policy MCP Server transforms Claude Code into an intelligent infrastru
 
 ### Method 1: NPX (Recommended)
 
-```bash
-# Add to Claude Code configuration
-claude mcp add-json azure-policy-mcp '{
-  "command": "npx",
-  "args": ["-y", "azure-policy-mcp"]
-}'
+Add the following to your Claude Code `.mcp.json` configuration file:
+
+```json
+{
+  "azure-policy-mcp": {
+    "command": "npx",
+    "args": ["-y", "azure-policy-mcp"],
+    "transport": {"type": "stdio"},
+    "env": {
+      "NODE_ENV": "production",
+      "GITHUB_TOKEN": "your_github_token_here"
+    },
+    "disabled": false,
+    "autoApprove": [],
+    "description": "Azure Policy MCP Server - Generate policy-compliant Bicep templates from natural language"
+  }
+}
 ```
 
 ### Method 2: Global NPM Installation
@@ -46,17 +64,28 @@ claude mcp add-json azure-policy-mcp '{
 npm install -g azure-policy-mcp
 ```
 
-Then configure Claude Code:
+Then add to your `.mcp.json` configuration:
 ```json
 {
-  "mcpServers": {
-    "azure-policy-mcp": {
-      "command": "azure-policy-mcp",
-      "args": []
+  "azure-policy-mcp": {
+    "command": "azure-policy-mcp",
+    "transport": {"type": "stdio"},
+    "env": {
+      "GITHUB_TOKEN": "your_github_token_here"
     }
   }
 }
 ```
+
+### GitHub Token Setup
+
+For best performance, add a GitHub personal access token:
+
+1. Go to GitHub Settings → Developer settings → Personal access tokens
+2. Generate a token with `public_repo` access
+3. Add it to your MCP configuration as shown above
+
+Without a token, you'll be limited to 60 API requests per hour.
 
 ## Usage
 
@@ -69,62 +98,76 @@ Once installed, the Azure Policy MCP integrates seamlessly with Claude Code. Use
 "Fix policy violations in my infrastructure template"
 ```
 
-## MCP Tools
-
-### `generate_compliant_infrastructure`
-Generate policy-compliant Bicep code from natural language descriptions.
-
-**Example:**
-```
-Input: "Create secure web app infrastructure with database for financial services"
-Output: Complete Bicep template with App Service, SQL Database, Key Vault, and compliance configurations
-```
+## Available MCP Tools
 
 ### `analyze_policy_requirements`
-Analyze and explain applicable Azure policies for specific resources.
+Analyze Azure policies applicable to specific resource types and provide compliance guidance.
 
-**Example:**
-```
-Input: "storage account"
-Output: List of applicable policies with human-readable explanations and compliance guidance
-```
+**Parameters:**
+- `resource_types` (required): Array of Azure resource types (e.g., `["Microsoft.Storage/storageAccounts"]`)
+- `policy_categories` (optional): Filter by policy categories (e.g., `["Security", "Compliance"]`)
+- `include_deprecated` (optional): Include deprecated policies (default: false)
 
-### `validate_template_compliance`
-Validate existing Bicep templates against all applicable policies.
+### `validate_bicep_against_policies`
+Validate Bicep template against Azure policies and identify compliance issues.
 
-**Example:**
-```
-Input: Bicep template
-Output: Comprehensive compliance report with specific violations and remediation suggestions
-```
+**Parameters:**
+- `bicep_content` (required): Bicep template content to validate
+- `policy_categories` (optional): Policy categories to validate against
 
-### `generate_compliance_fixes`
-Generate specific code changes to resolve policy violations.
+### `search_bicep_templates`
+Search Azure Bicep templates by resource types, categories, and keywords.
 
-### `discover_compliant_templates`
-Search and retrieve proven compliant templates from comprehensive database.
+**Parameters:**
+- `resource_types` (optional): Resource types to search for
+- `categories` (optional): Template categories (Compute, Storage, Network, etc.)
+- `keywords` (optional): Keywords to search in template names
+- `max_complexity` (optional): Maximum template complexity (simple, moderate, complex)
+- `limit` (optional): Maximum number of results (default: 10)
+
+### `recommend_bicep_templates`
+Get template recommendations based on requirements and generate policy-compliant Bicep code.
+
+**Parameters:**
+- `requirements` (required): Natural language description of infrastructure needs
+- `resource_types` (optional): Specific Azure resource types needed
+- `include_monitoring` (optional): Include monitoring and diagnostics (default: true)
+- `include_security` (optional): Include security best practices (default: true)
+
+### `refresh_data_sources`
+Refresh cached data from GitHub repositories.
+
+**Parameters:**
+- `data_source` (optional): Specific data source to refresh
 
 ## Data Sources
 
-- **Azure Policy Repository**: 93+ categories, 500+ policy definitions
-- **Azure QuickStart Templates**: 1000+ Bicep templates
-- **Azure Docs Bicep Samples**: 100+ real-world examples  
-- **Azure Resource Modules**: 50+ production-ready modules
+The MCP server uses GitHub Search API to access real-time data from:
+
+- **Azure Policy Repository** (`Azure/azure-policy`): Official Azure policy definitions
+- **Azure QuickStart Templates** (`Azure/azure-quickstart-templates`): Community-driven Bicep templates
+- **Live GitHub Search**: Real-time search across Azure repositories
 
 ## Configuration
 
 ### Environment Variables
 
-- `GITHUB_TOKEN`: Optional GitHub API token for higher rate limits
+- `GITHUB_TOKEN`: GitHub API token for higher rate limits (recommended)
 - `CACHE_SIZE_MB`: Maximum cache size in megabytes (default: 256)
 - `LOG_LEVEL`: Logging level - error, warn, info, debug (default: info)
+- `NODE_ENV`: Node environment (default: production)
 
 ### Performance
 
-- **Policy Analysis**: < 3 seconds
-- **Template Validation**: < 5 seconds
-- **Code Generation**: < 10 seconds
-- **Template Search**: < 2 seconds
+- **Policy Analysis**: < 2 seconds (with GitHub Search API)
+- **Template Search**: < 2 seconds (direct directory search)
+- **Template Validation**: < 3 seconds (cached policy lookups)
+- **Code Generation**: < 1 second (template-based generation)
+
+### Rate Limits
+
+- **With GitHub Token**: 30 searches/minute, 5000 API requests/hour
+- **Without Token**: 10 searches/minute, 60 API requests/hour
 
 ## Development
 
@@ -135,7 +178,7 @@ Search and retrieve proven compliant templates from comprehensive database.
 
 ### Setup
 ```bash
-git clone <repository-url>
+git clone https://github.com/andrewlwn77/azure-policy-mcp.git
 cd azure-policy-mcp
 npm install
 npm run build
@@ -157,24 +200,24 @@ npm run dev       # Watch mode for development
 
 ## Architecture
 
-The Azure Policy MCP follows a modular monolith architecture:
+The Azure Policy MCP follows a lightweight, API-first architecture:
 
 ```
 src/
-├── tools/              # MCP tool implementations
-├── services/           # Core business logic
-├── infrastructure/     # Cross-cutting concerns
-├── server/            # MCP server setup
+├── server/            # MCP server and tool implementations
+├── services/          # GitHub API integration and parsing
+├── infrastructure/    # Caching, session management, error handling
 └── types/             # TypeScript definitions
 ```
 
 ### Key Components
 
-- **Policy Intelligence Engine**: Policy discovery and rule interpretation
-- **Template Intelligence Engine**: Template matching and code generation  
-- **Validation Engine**: Compliance checking and fix suggestions
-- **Data Access Layer**: GitHub integration with intelligent caching
-- **Session State Manager**: Context preservation across tool invocations
+- **GitHub Search API Integration**: Fast, real-time policy and template discovery
+- **Direct File Fetching**: Targeted file access without heavy indexing
+- **Intelligent Caching**: 10-minute cache windows respecting API rate limits
+- **Policy Parser**: JSON policy definition analysis and explanation
+- **Template Generator**: Policy-compliant Bicep code generation
+- **Timeout Management**: 10-30 second timeouts preventing hanging requests
 
 ## Contributing
 
@@ -188,11 +231,22 @@ src/
 
 MIT License - see LICENSE file for details
 
+## Publishing
+
+To publish to npm:
+
+```bash
+npm version patch  # or minor, major
+npm publish
+```
+
+**Note**: Publishing requires OTP (One-Time Password) authentication.
+
 ## Support
 
 For issues and questions:
-- GitHub Issues: Report bugs and request features
-- Documentation: See `/docs` directory for detailed guides
+- **GitHub Issues**: [https://github.com/andrewlwn77/azure-policy-mcp/issues](https://github.com/andrewlwn77/azure-policy-mcp/issues)
+- **GitHub Repository**: [https://github.com/andrewlwn77/azure-policy-mcp](https://github.com/andrewlwn77/azure-policy-mcp)
 
 ---
 
