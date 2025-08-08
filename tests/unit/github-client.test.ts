@@ -106,7 +106,10 @@ describe('GitHubClient', () => {
 
       expect(result).toBe(mockContent);
       expect(mockFetch).toHaveBeenCalledWith(
-        'https://raw.githubusercontent.com/Azure/azure-policy/master/test.json'
+        'https://raw.githubusercontent.com/Azure/azure-policy/master/test.json',
+        expect.objectContaining({
+          signal: expect.any(AbortSignal)
+        })
       );
     });
 

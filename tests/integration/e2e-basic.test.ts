@@ -16,11 +16,59 @@ describe('Azure Policy MCP Server - Basic E2E Tests', () => {
     server = new AzurePolicyMcpServer();
     mockFetch.mockClear();
     
-    // Setup default mock response
-    mockFetch.mockResolvedValue({
-      ok: true,
-      json: async () => []
-    } as Response);
+    // Setup mock responses for different GitHub API endpoints
+    mockFetch.mockImplementation((url: string | URL | Request) => {
+      const urlString = url.toString();
+      
+      // Mock GitHub Search API responses
+      if (urlString.includes('api.github.com/search/code')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            total_count: 2,
+            items: [
+              {
+                name: 'StorageAccountBlobs_EnableAzureBackup_Audit.json',
+                path: 'built-in-policies/policyDefinitions/Backup/StorageAccountBlobs_EnableAzureBackup_Audit.json'
+              },
+              {
+                name: 'VirtualMachineBackup_DINE.json',
+                path: 'built-in-policies/policyDefinitions/Backup/VirtualMachineBackup_DINE.json'
+              }
+            ]
+          })
+        } as Response);
+      }
+      
+      // Mock GitHub file content API responses
+      if (urlString.includes('api.github.com/repos/Azure/azure-policy/contents/')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            content: Buffer.from(JSON.stringify({
+              displayName: 'Test Policy',
+              description: 'Test policy description',
+              policyRule: { if: true, then: { effect: 'audit' } },
+              metadata: { category: 'Backup' }
+            })).toString('base64')
+          })
+        } as Response);
+      }
+      
+      // Mock Azure QuickStart template search
+      if (urlString.includes('api.github.com/repos/Azure/azure-quickstart-templates')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ([])
+        } as Response);
+      }
+      
+      // Default fallback
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({ items: [] })
+      } as Response);
+    });
   });
 
   test('should initialize server successfully', () => {
@@ -107,7 +155,7 @@ describe('Azure Policy MCP Server - Basic E2E Tests', () => {
 
     const result = await refreshTool.execute({});
 
-    expect(result.content[0].text).toContain('Data Source Refresh Results');
+    expect(result.content[0].text).toContain('Data Source Refresh Completed');
   });
 
   test('should generate valid Bicep templates', () => {

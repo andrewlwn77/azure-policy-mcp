@@ -484,62 +484,186 @@ export class AzurePolicyMcpServer {
 
       const results: string[] = [];
       
-      // Build GitHub search query
-      const searchTerms = [];
-      
-      // Add resource type search terms
-      if (resourceTypes && resourceTypes.length > 0) {
-        for (const resourceType of resourceTypes.slice(0, 3)) { // Limit to avoid long URLs
-          const shortType = resourceType.split('/')[1]; // e.g., "storageAccounts" from "Microsoft.Storage/storageAccounts"
-          if (shortType) {
-            searchTerms.push(shortType);
-          }
-        }
-      }
-      
-      // Add category terms if specified
-      if (categories && categories.length > 0) {
-        searchTerms.push(...categories.slice(0, 2)); // Limit categories
-      }
-      
-      // If no specific terms, search for common policy files
-      if (searchTerms.length === 0) {
-        searchTerms.push('policyDefinition');
-      }
-      
-      // GitHub Search API call
-      const searchQuery = `${searchTerms.join(' ')} repo:Azure/azure-policy filename:*.json`;
-      const searchUrl = `https://api.github.com/search/code?q=${encodeURIComponent(searchQuery)}&per_page=20`;
-      
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
-      
-      const response = await fetch(searchUrl, {
-        headers: {
-          'Accept': 'application/vnd.github.v3+json',
-          'User-Agent': 'azure-policy-mcp/1.0.0',
-          ...(this.githubClient.hasToken() ? {'Authorization': `token ${process.env.GITHUB_TOKEN}`} : {})
+      // Resource type to policy category mapping
+      const resourceTypeMappings: Record<string, { primaryCategories: string[], secondaryCategories: string[], searchTerms: string[] }> = {
+        'Microsoft.Storage/storageAccounts': {
+          primaryCategories: ['Storage'],
+          secondaryCategories: ['Backup', 'Security'],
+          searchTerms: ['storage', 'account', 'blob']
         },
-        signal: controller.signal
-      });
-      
-      clearTimeout(timeoutId);
-      
-      if (!response.ok) {
-        console.warn(`GitHub search failed: ${response.status} ${response.statusText}`);
-        return [];
+        'Microsoft.Compute/virtualMachines': {
+          primaryCategories: ['Compute'],
+          secondaryCategories: ['Backup', 'Security', 'Monitoring'],
+          searchTerms: ['compute', 'vm', 'virtual', 'machine']
+        },
+        'Microsoft.Compute/disks': {
+          primaryCategories: ['Compute'],
+          secondaryCategories: ['Backup', 'Security'],
+          searchTerms: ['compute', 'disk']
+        },
+        'Microsoft.Network/virtualNetworks': {
+          primaryCategories: ['Network'],
+          secondaryCategories: ['Security'],
+          searchTerms: ['network', 'vnet', 'subnet']
+        },
+        'Microsoft.KeyVault/vaults': {
+          primaryCategories: ['Key Vault'],
+          secondaryCategories: ['Security', 'Backup'],
+          searchTerms: ['keyvault', 'vault', 'key']
+        }
+      };
+
+      // Determine which categories to search based on resource types and explicit categories
+      const categoriesToSearch = new Set<string>();
+      const searchTerms = new Set<string>();
+
+      // Add explicitly requested categories
+      if (categories && categories.length > 0) {
+        categories.forEach(cat => categoriesToSearch.add(cat));
       }
-      
-      const searchResults = await response.json() as any;
-      
-      // Extract file paths from search results
-      if (searchResults.items && Array.isArray(searchResults.items)) {
-        for (const item of searchResults.items) {
-          if (item.path && item.path.endsWith('.json')) {
-            results.push(item.path);
+
+      // Map resource types to categories and search terms
+      if (resourceTypes && resourceTypes.length > 0) {
+        for (const resourceType of resourceTypes) {
+          const mapping = resourceTypeMappings[resourceType];
+          if (mapping) {
+            // Add primary categories
+            mapping.primaryCategories.forEach(cat => categoriesToSearch.add(cat));
+            
+            // Add secondary categories if no explicit categories specified
+            if (!categories || categories.length === 0) {
+              mapping.secondaryCategories.forEach(cat => categoriesToSearch.add(cat));
+            }
+            
+            // Add search terms for content filtering
+            mapping.searchTerms.forEach(term => searchTerms.add(term));
+          } else {
+            // Fallback for unmapped resource types
+            const parts = resourceType.split('/');
+            if (parts.length >= 2) {
+              const service = parts[0].replace('Microsoft.', '');
+              const resourceName = parts[1];
+              categoriesToSearch.add(service);
+              searchTerms.add(service.toLowerCase());
+              searchTerms.add(resourceName.toLowerCase());
+            }
           }
         }
       }
+
+      // If no categories determined, search common categories
+      if (categoriesToSearch.size === 0) {
+        categoriesToSearch.add('Storage');
+        categoriesToSearch.add('Compute');
+        categoriesToSearch.add('Security');
+      }
+
+      console.log(`[MCP] Searching categories: ${Array.from(categoriesToSearch).join(', ')} with terms: ${Array.from(searchTerms).join(', ')}`);
+
+      // Use specific filename searches instead of path-based wildcards due to GitHub API limitations
+      const knownPolicyFiles = new Map([
+        // Storage + Backup policies
+        ['Microsoft.Storage/storageAccounts', [
+          'StorageAccountBlobs_EnableAzureBackup_Audit.json', 
+          'BlobBackupForStorageAccoutsWithTag_DINE.json',
+          // Security policies for storage accounts
+          'StorageAccountSecureTransfer_Modify.json',
+          'StorageAccountMinimumTLSVersion_Audit.json',
+          'StorageAccountAllowSharedKeyAccess_Audit.json',
+          'StorageAccountCustomerManagedKeyEnabled_Audit.json'
+        ]],
+        // VM + Backup policies  
+        ['Microsoft.Compute/virtualMachines', ['VirtualMachineBackup_DINE.json', 'VirtualMachines_EnableAzureBackup_Audit.json', 'VirtualMachineWithTag_DINE.json']],
+        // Generic backup policies
+        ['backup', ['RecoveryServices_PrivateEndpoint_Audit.json', 'BackupRecoveryServices_SoftDelete_Audit.json']],
+        // Security policies
+        ['security', [
+          'StorageAccountSecureTransfer_Modify.json',
+          'StorageAccountMinimumTLSVersion_Audit.json', 
+          'StorageAccountAllowSharedKeyAccess_Audit.json'
+        ]]
+      ]);
+
+      // Search for known policy files based on resource types and categories
+      const searchFilenames = new Set<string>();
+      
+      for (const resourceType of resourceTypes) {
+        const knownFiles = knownPolicyFiles.get(resourceType);
+        if (knownFiles) {
+          knownFiles.forEach(file => searchFilenames.add(file));
+        }
+      }
+
+      // Add category-specific known files
+      if (categories && categories.includes('Backup')) {
+        knownPolicyFiles.get('backup')?.forEach(file => searchFilenames.add(file));
+      }
+      
+      if (categories && categories.includes('Security')) {
+        knownPolicyFiles.get('security')?.forEach(file => searchFilenames.add(file));
+      }
+
+      // If no specific categories requested, include security policies for validation
+      if (!categories || categories.length === 0) {
+        knownPolicyFiles.get('security')?.forEach(file => searchFilenames.add(file));
+      }
+
+      // If no specific files identified, add common policy files
+      if (searchFilenames.size === 0 && (categories?.includes('Backup') || resourceTypes.some(rt => rt.includes('Storage') || rt.includes('Compute')))) {
+        ['VirtualMachineBackup_DINE.json', 'StorageAccountBlobs_EnableAzureBackup_Audit.json', 'VirtualMachines_EnableAzureBackup_Audit.json'].forEach(file => searchFilenames.add(file));
+      }
+
+      console.log(`[MCP] Searching for specific policy files: ${Array.from(searchFilenames).join(', ')}`);
+
+      // Search for each specific filename
+      for (const filename of Array.from(searchFilenames).slice(0, 10)) { // Limit to 10 files
+        try {
+          const searchQuery = `repo:Azure/azure-policy filename:${filename}`;
+          const searchUrl = `https://api.github.com/search/code?q=${encodeURIComponent(searchQuery)}&per_page=5`;
+          
+          console.log(`[MCP] GitHub Search Query: ${searchQuery}`);
+          
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+          
+          const response = await fetch(searchUrl, {
+            headers: {
+              'Accept': 'application/vnd.github.v3+json',
+              'User-Agent': 'azure-policy-mcp/1.0.0',
+              ...(this.githubClient.hasToken() ? {'Authorization': `token ${process.env.GITHUB_TOKEN}`} : {})
+            },
+            signal: controller.signal
+          });
+          
+          clearTimeout(timeoutId);
+          
+          if (!response.ok) {
+            console.warn(`[MCP] GitHub search failed for file ${filename}: ${response.status} ${response.statusText}`);
+            continue; // Try next file
+          }
+          
+          const searchResults = await response.json() as any;
+          console.log(`[MCP] Found ${searchResults.items?.length || 0} matches for ${filename}`);
+          
+          // Extract file paths from search results
+          if (searchResults.items && Array.isArray(searchResults.items)) {
+            for (const item of searchResults.items) {
+              if (item.path && item.path.endsWith('.json') && !results.includes(item.path)) {
+                results.push(item.path);
+              }
+            }
+          }
+        } catch (fileError) {
+          if (fileError instanceof Error && fileError.name === 'AbortError') {
+            console.warn(`[MCP] GitHub search timed out for file ${filename} after 10 seconds`);
+          } else {
+            console.warn(`[MCP] Error searching file ${filename}:`, fileError);
+          }
+          continue; // Try next file
+        }
+      }
+      
+      console.log(`[MCP] Total policy files found: ${results.length}`);
       
       // Cache results for 10 minutes to respect rate limits
       this.cache.set(cacheKey, results, 10 * 60 * 1000);
