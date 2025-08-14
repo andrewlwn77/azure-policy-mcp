@@ -16,10 +16,12 @@ import { GitHubClient } from '../services/github/github-client.js';
 import { DataSourceManager } from '../services/github/data-source-manager.js';
 import { PolicyParser } from '../services/policy/policy-parser.js';
 import { TemplateIndexer } from '../services/templates/template-indexer.js';
+import { AzureDocsScraperService } from '../services/documentation/azure-docs-scraper.js';
 
 import type { ToolExecutionContext } from '../types/mcp.js';
 import type { PolicySearchCriteria } from '../types/policy.js';
 import type { TemplateSearchCriteria } from '../types/templates.js';
+import type { ScrapeParams } from '../types/azure.js';
 
 export class AzurePolicyMcpServer {
   private server: Server;
@@ -30,6 +32,7 @@ export class AzurePolicyMcpServer {
   private dataSourceManager!: DataSourceManager;
   private policyParser!: PolicyParser;
   private templateIndexer!: TemplateIndexer;
+  private azureDocsScraperService!: AzureDocsScraperService;
 
   constructor() {
     this.server = new Server({
@@ -59,11 +62,13 @@ export class AzurePolicyMcpServer {
     this.dataSourceManager = new DataSourceManager(this.githubClient, this.cache);
     this.policyParser = new PolicyParser();
     this.templateIndexer = new TemplateIndexer(this.githubClient, this.cache);
+    this.azureDocsScraperService = new AzureDocsScraperService(this.cache);
     
     // Initialize MCP tools
     this.initializePolicyTools();
     this.initializeTemplateTools();
     this.initializeDataSourceTools();
+    this.initializeDocumentationTools();
   }
 
   private initializePolicyTools(): void {
@@ -410,6 +415,319 @@ export class AzurePolicyMcpServer {
         }
       }
     });
+  }
+
+  private initializeDocumentationTools(): void {
+    // Azure documentation overview tool - lightweight metadata only
+    this.tools.set('fetch_azure_documentation_overview', {
+      getToolDefinition: () => ({
+        name: 'fetch_azure_documentation_overview',
+        description: 'Get lightweight overview of Azure resource documentation (counts and metadata only)',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            resource_type: {
+              type: 'string',
+              description: 'Azure resource type (e.g., Microsoft.Storage/storageAccounts)'
+            },
+            cache_duration: {
+              type: 'number',
+              description: 'Cache duration in minutes (default: 60, max: 1440)'
+            }
+          },
+          required: ['resource_type']
+        }
+      }),
+      execute: async (args: Record<string, any>) => {
+        try {
+          // Validate input parameters
+          if (!args || !args.resource_type || typeof args.resource_type !== 'string') {
+            return {
+              content: [{
+                type: 'text',
+                text: 'Error: resource_type parameter is required and must be a string'
+              }]
+            };
+          }
+
+          // Validate resource type format
+          if (!args.resource_type.includes('/') || !args.resource_type.startsWith('Microsoft.')) {
+            return {
+              content: [{
+                type: 'text',
+                text: 'Error: resource_type must follow format "Microsoft.Service/resourceType" (e.g., Microsoft.Storage/storageAccounts)'
+              }]
+            };
+          }
+
+          console.log(`[Azure Docs Overview] Fetching overview for ${args.resource_type}`);
+
+          // Call the overview function
+          const result = await this.azureDocsScraperService.fetchDocumentationOverview(
+            args.resource_type,
+            { cache_duration: Math.min(args.cache_duration || 60, 1440) }
+          );
+
+          if (result.success && result.data) {
+            // Format overview response
+            let responseText = `**Azure Documentation Overview: ${result.data.resource_type}**\n\n`;
+            responseText += `📄 **Source:** [${result.data.documentation_url}](${result.data.documentation_url})\n`;
+            responseText += `⚡ **Cache Status:** ${result.cache_info.cached ? `Cached (${result.cache_info.cache_age}m old)` : 'Fresh'}\n\n`;
+
+            // Add overview metadata
+            if (result.data.overview) {
+              const overview = result.data.overview;
+              responseText += `## Documentation Overview\n`;
+              responseText += `📊 **Property Count:** ${overview.property_count}\n`;
+              responseText += `💻 **Code Examples:** ${overview.code_example_count}\n`;
+              responseText += `📋 **API Versions:** ${overview.api_versions_count}\n`;
+              responseText += `🏷️ **Complexity:** ${overview.complexity_score}\n`;
+              responseText += `🕒 **Last Updated:** ${overview.last_updated}\n\n`;
+            }
+
+            // Add available sections
+            if (result.data.available_sections && result.data.available_sections.length > 0) {
+              responseText += `## Available Sections\n`;
+              responseText += result.data.available_sections.map(section => `✅ ${section}`).join('\n');
+              responseText += `\n\n`;
+              responseText += `💡 **Next Steps:** Use \`fetch_azure_documentation_details\` with specific sections to get detailed content.\n`;
+            }
+
+            return {
+              content: [{
+                type: 'text',
+                text: responseText
+              }]
+            };
+
+          } else {
+            // Format error response
+            const error = result.error!;
+            let errorText = `**❌ Documentation Overview Failed**\n\n`;
+            errorText += `**Error Type:** ${error.type}\n`;
+            errorText += `**Message:** ${error.message}\n\n`;
+            
+            if (error.suggestions && error.suggestions.length > 0) {
+              errorText += `**Suggestions:**\n`;
+              for (const suggestion of error.suggestions) {
+                errorText += `- ${suggestion}\n`;
+              }
+            }
+
+            return {
+              content: [{
+                type: 'text',
+                text: errorText
+              }]
+            };
+          }
+
+        } catch (error) {
+          console.error('[Azure Docs Overview] Tool execution error:', error);
+          return {
+            content: [{
+              type: 'text',
+              text: `Unexpected error while fetching Azure documentation overview: ${error instanceof Error ? error.message : String(error)}`
+            }]
+          };
+        }
+      }
+    });
+
+    // Azure documentation details tool - selective section retrieval
+    this.tools.set('fetch_azure_documentation_details', {
+      getToolDefinition: () => ({
+        name: 'fetch_azure_documentation_details',
+        description: 'Get detailed Azure resource documentation with selective section retrieval',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            resource_type: {
+              type: 'string',
+              description: 'Azure resource type (e.g., Microsoft.Storage/storageAccounts)'
+            },
+            sections: {
+              type: 'array',
+              items: { type: 'string', enum: ['properties', 'code_examples', 'api_versions', 'quick_summary'] },
+              description: 'Specific sections to retrieve (default: all)',
+              default: ['properties', 'code_examples', 'api_versions']
+            },
+            language: {
+              type: 'string',
+              enum: ['bicep', 'arm', 'terraform'],
+              description: 'Documentation language preference (default: bicep)'
+            },
+            include_examples: {
+              type: 'boolean',
+              description: 'Include code examples in response (default: true)'
+            },
+            cache_duration: {
+              type: 'number',
+              description: 'Cache duration in minutes (default: 60, max: 1440)'
+            }
+          },
+          required: ['resource_type']
+        }
+      }),
+      execute: async (args: Record<string, any>) => {
+        try {
+          // Validate input parameters
+          if (!args || !args.resource_type || typeof args.resource_type !== 'string') {
+            return {
+              content: [{
+                type: 'text',
+                text: 'Error: resource_type parameter is required and must be a string'
+              }]
+            };
+          }
+
+          // Validate resource type format
+          if (!args.resource_type.includes('/') || !args.resource_type.startsWith('Microsoft.')) {
+            return {
+              content: [{
+                type: 'text',
+                text: 'Error: resource_type must follow format "Microsoft.Service/resourceType" (e.g., Microsoft.Storage/storageAccounts)'
+              }]
+            };
+          }
+
+          // Validate sections parameter
+          const allowedSections = ['properties', 'code_examples', 'api_versions', 'quick_summary'];
+          const sections = args.sections || ['properties', 'code_examples', 'api_versions'];
+          
+          if (!Array.isArray(sections)) {
+            return {
+              content: [{
+                type: 'text',
+                text: 'Error: sections parameter must be an array'
+              }]
+            };
+          }
+
+          const invalidSections = sections.filter(s => !allowedSections.includes(s));
+          if (invalidSections.length > 0) {
+            return {
+              content: [{
+                type: 'text',
+                text: `Error: Invalid sections: ${invalidSections.join(', ')}. Allowed: ${allowedSections.join(', ')}`
+              }]
+            };
+          }
+
+          console.log(`[Azure Docs Details] Fetching details for ${args.resource_type}, sections: ${sections.join(', ')}`);
+
+          // Call the detailed function
+          const result = await this.azureDocsScraperService.fetchDocumentationDetails(
+            args.resource_type,
+            sections,
+            {
+              language: args.language || 'bicep',
+              include_examples: args.include_examples !== false,
+              cache_duration: Math.min(args.cache_duration || 60, 1440)
+            }
+          );
+
+          if (result.success && result.data) {
+            // Format detailed response
+            let responseText = `**Azure Documentation Details: ${result.data.resource_type}**\n\n`;
+            responseText += `📄 **Source:** [${result.data.documentation_url}](${result.data.documentation_url})\n`;
+            responseText += `🎯 **Requested Sections:** ${result.data.requested_sections?.join(', ')}\n`;
+            responseText += `✅ **Retrieved Sections:** ${result.data.retrieved_sections?.join(', ')}\n`;
+            responseText += `⚡ **Cache Status:** ${result.cache_info.cached ? `Cached (${result.cache_info.cache_age}m old)` : 'Fresh'}\n\n`;
+
+            // Add properties section
+            if (result.data.properties && result.data.properties.length > 0) {
+              responseText += `## Properties (${result.data.properties.length})\n\n`;
+              for (const prop of result.data.properties.slice(0, 10)) { // Limit to 10 properties
+                responseText += `### ${prop.name}\n`;
+                if (prop.type) responseText += `**Type:** ${prop.type}\n`;
+                if (prop.required !== undefined) responseText += `**Required:** ${prop.required ? 'Yes' : 'No'}\n`;
+                if (prop.description) responseText += `**Description:** ${prop.description}\n`;
+                responseText += `\n`;
+              }
+              if (result.data.properties.length > 10) {
+                responseText += `_... and ${result.data.properties.length - 10} more properties_\n\n`;
+              }
+            }
+
+            // Add code examples section
+            if (result.data.code_examples && result.data.code_examples.length > 0) {
+              responseText += `## Code Examples (${result.data.code_examples.length})\n\n`;
+              for (const example of result.data.code_examples.slice(0, 3)) { // Limit to 3 examples
+                responseText += `### ${example.language.charAt(0).toUpperCase() + example.language.slice(1)} Example\n`;
+                responseText += `\`\`\`${example.language === 'arm' ? 'json' : example.language}\n${example.code}\n\`\`\`\n\n`;
+              }
+              if (result.data.code_examples.length > 3) {
+                responseText += `_... and ${result.data.code_examples.length - 3} more examples_\n\n`;
+              }
+            }
+
+            // Add API versions section
+            if (result.data.api_versions && result.data.api_versions.length > 0) {
+              responseText += `## API Versions (${result.data.api_versions.length})\n\n`;
+              responseText += result.data.api_versions.slice(0, 10).map(version => `- ${version}`).join('\n');
+              if (result.data.api_versions.length > 10) {
+                responseText += `\n_... and ${result.data.api_versions.length - 10} more versions_`;
+              }
+              responseText += `\n\n`;
+            }
+
+            // Add quick summary section
+            if (result.data.quick_summary) {
+              responseText += `## Quick Summary\n\n`;
+              if (result.data.quick_summary.top_properties && result.data.quick_summary.top_properties.length > 0) {
+                responseText += `**Key Properties:**\n`;
+                for (const prop of result.data.quick_summary.top_properties) {
+                  responseText += `- **${prop.name}**: ${prop.description}\n`;
+                }
+                responseText += `\n`;
+              }
+              if (result.data.quick_summary.example_snippet) {
+                responseText += `**Example Snippet:**\n\`\`\`bicep\n${result.data.quick_summary.example_snippet}\n\`\`\`\n\n`;
+              }
+            }
+
+            return {
+              content: [{
+                type: 'text',
+                text: responseText
+              }]
+            };
+
+          } else {
+            // Format error response
+            const error = result.error!;
+            let errorText = `**❌ Documentation Details Failed**\n\n`;
+            errorText += `**Error Type:** ${error.type}\n`;
+            errorText += `**Message:** ${error.message}\n\n`;
+            
+            if (error.suggestions && error.suggestions.length > 0) {
+              errorText += `**Suggestions:**\n`;
+              for (const suggestion of error.suggestions) {
+                errorText += `- ${suggestion}\n`;
+              }
+            }
+
+            return {
+              content: [{
+                type: 'text',
+                text: errorText
+              }]
+            };
+          }
+
+        } catch (error) {
+          console.error('[Azure Docs Details] Tool execution error:', error);
+          return {
+            content: [{
+              type: 'text',
+              text: `Unexpected error while fetching Azure documentation details: ${error instanceof Error ? error.message : String(error)}`
+            }]
+          };
+        }
+      }
+    });
+
   }
 
   private setupHandlers(): void {

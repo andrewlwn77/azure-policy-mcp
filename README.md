@@ -10,6 +10,7 @@ The Azure Policy MCP Server integrates Azure policy intelligence with Bicep temp
 - Validate existing templates against Azure policies  
 - Search Azure QuickStart templates efficiently
 - Get policy compliance recommendations
+- Scrape live Azure resource documentation from Microsoft Learn
 
 Built with GitHub Search API for fast responses and real-time data access.
 
@@ -34,6 +35,13 @@ Built with GitHub Search API for fast responses and real-time data access.
 - Search 1000+ proven compliant templates from comprehensive database
 - Relevance ranking and compliance quality assessment
 - Template customization guidance and real-time validation
+
+### 📖 **Progressive Documentation Access**
+- **Two-function architecture** for optimal user experience without information overload
+- **Quick Overview**: Fast metadata extraction (property counts, complexity assessment, available sections)
+- **Selective Retrieval**: Get only the sections you need (properties, code examples, API versions, quick summary)
+- **Real-time scraping** from Microsoft Learn with Bicep, ARM, and Terraform support
+- **Smart caching** with configurable duration up to 24 hours
 
 ## Installation
 
@@ -96,6 +104,9 @@ Once installed, the Azure Policy MCP integrates seamlessly with Claude Code. Use
 "What policies apply to virtual machines in my subscription?"
 "Validate this Bicep template against Azure policies"
 "Fix policy violations in my infrastructure template"
+"Get overview of Azure Key Vault documentation"
+"Show me only the properties for Azure App Service"
+"Get Bicep examples and API versions for Storage Accounts"
 ```
 
 ## Available MCP Tools
@@ -134,6 +145,37 @@ Get template recommendations based on requirements and generate policy-compliant
 - `include_monitoring` (optional): Include monitoring and diagnostics (default: true)
 - `include_security` (optional): Include security best practices (default: true)
 
+### `fetch_azure_documentation_overview`
+Get a lightweight overview of Azure resource documentation for quick assessment without information overload.
+
+**Parameters:**
+- `resource_type` (required): Azure resource type (e.g., `"Microsoft.Storage/storageAccounts"`)
+- `cache_duration` (optional): Cache duration in minutes (default: 60, max: 1440)
+
+**Returns:**
+- Property count and complexity assessment
+- Number of available code examples and API versions
+- List of available sections for detailed retrieval
+- Fast response time (~1-2 seconds)
+
+### `fetch_azure_documentation_details`
+Get detailed Azure resource documentation with selective section retrieval to avoid overwhelming users.
+
+**Parameters:**
+- `resource_type` (required): Azure resource type (e.g., `"Microsoft.Storage/storageAccounts"`)
+- `sections` (optional): Array of sections to retrieve - `["properties", "code_examples", "api_versions", "quick_summary"]` (default: all)
+- `language` (optional): Documentation language preference - `"bicep"`, `"arm"`, or `"terraform"` (default: `"bicep"`)
+- `include_examples` (optional): Include code examples in response (default: `true`)
+- `cache_duration` (optional): Cache duration in minutes (default: 60, max: 1440)
+
+**Example Usage:**
+```
+"Get overview of Azure Storage Account documentation"
+"Show me just the API versions for Virtual Machines"
+"Get properties and code examples for Azure Key Vault"
+"Fetch only Bicep examples for App Service"
+```
+
 ### `refresh_data_sources`
 Refresh cached data from GitHub repositories.
 
@@ -147,12 +189,14 @@ The MCP server uses GitHub Search API to access real-time data from:
 - **Azure Policy Repository** (`Azure/azure-policy`): Official Azure policy definitions
 - **Azure QuickStart Templates** (`Azure/azure-quickstart-templates`): Community-driven Bicep templates
 - **Live GitHub Search**: Real-time search across Azure repositories
+- **Microsoft Learn Documentation** (`learn.microsoft.com`): Live Azure resource documentation scraping
 
 ## Configuration
 
 ### Environment Variables
 
 - `GITHUB_TOKEN`: GitHub API token for higher rate limits (recommended)
+- `PUPPETEER_EXECUTABLE_PATH`: Custom path to Chrome executable for documentation scraping (optional)
 - `CACHE_SIZE_MB`: Maximum cache size in megabytes (default: 256)
 - `LOG_LEVEL`: Logging level - error, warn, info, debug (default: info)
 - `NODE_ENV`: Node environment (default: production)
@@ -163,6 +207,8 @@ The MCP server uses GitHub Search API to access real-time data from:
 - **Template Search**: < 2 seconds (direct directory search)
 - **Template Validation**: < 3 seconds (cached policy lookups)
 - **Code Generation**: < 1 second (template-based generation)
+- **Documentation Overview**: 1-2 seconds (fast metadata extraction)
+- **Documentation Details**: 3-5 seconds (selective content retrieval)
 
 ### Rate Limits
 
@@ -214,7 +260,9 @@ src/
 
 - **GitHub Search API Integration**: Fast, real-time policy and template discovery
 - **Direct File Fetching**: Targeted file access without heavy indexing
-- **Intelligent Caching**: 10-minute cache windows respecting API rate limits
+- **Progressive Documentation System**: Two-function architecture preventing information overload
+- **Puppeteer Browser Automation**: Direct Microsoft Learn documentation scraping
+- **Intelligent Caching**: Separate cache strategies for overview and detailed content
 - **Policy Parser**: JSON policy definition analysis and explanation
 - **Template Generator**: Policy-compliant Bicep code generation
 - **Timeout Management**: 10-30 second timeouts preventing hanging requests
